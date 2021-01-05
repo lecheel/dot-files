@@ -31,3 +31,4 @@ sh -c 'curl -fLo "${XDG_DATA_HOME:-$HOME/.local/share}"/nvim/site/autoload/plug.
 :CocInstall coc-fzf-preview
 :CocInstall coc-json
 ```
+![dirMarks](https://github.com/lecheel/dot-files/blob/main/qtips.png)
