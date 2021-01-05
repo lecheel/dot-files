@@ -1,4 +1,5 @@
 
+```
 source ~/.bash_extra
 
 #install neovim with misc
@@ -29,4 +30,4 @@ sh -c 'curl -fLo "${XDG_DATA_HOME:-$HOME/.local/share}"/nvim/site/autoload/plug.
 :PlugInstall
 :CocInstall coc-fzf-preview
 :CocInstall coc-json
-
+```
