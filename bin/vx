@@ -1,0 +1,6 @@
+#! /bin/bash
+if [[ $1 == "" ]]; then
+    echo -e "vx \033[92mFile1 \033[93mFile2\033[0m"
+    exit
+fi
+vimdiff $@

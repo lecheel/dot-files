@@ -1,0 +1,1078 @@
+#! /usr/bin/python
+import os
+import sys
+import re
+import datetime
+from time import gmtime, strftime, localtime
+from datetime import datetime, timedelta
+import mysql.connector
+import time
+import uuid
+# import datetime
+import argparse
+import collections
+import tarfile
+import json
+import glob
+from pyfiglet import Figlet
+from shutil import copyfile
+from PIL import Image
+from tqdm import tqdm
+import cv2
+
+#sudo apt-get install python-mysql.connector
+
+jdata = {}
+
+
+def query_yes_no(question, default="yes"):
+    """Ask a yes/no question via raw_input() and return their answer.
+
+    "question" is a string that is presented to the user.
+    "default" is the presumed answer if the user just hits <Enter>.
+        It must be "yes" (the default), "no" or None (meaning
+        an answer is required of the user).
+
+    The "answer" return value is True for "yes" or False for "no".
+    """
+    valid = {"yes": True, "y": True, "ye": True,
+             "no": False, "n": False}
+    if default is None:
+        prompt = " [y/n] "
+    elif default == "yes":
+        prompt = " [Y/n] "
+    elif default == "no":
+        prompt = " [y/N] "
+    else:
+        raise ValueError("invalid default answer: '%s'" % default)
+
+    while True:
+        sys.stdout.write(question + prompt)
+        choice = raw_input().lower()
+        if default is not None and choice == '':
+            return valid[default]
+        elif choice in valid:
+            return valid[choice]
+        else:
+            sys.stdout.write("Please respond with 'yes' or 'no' "
+                             "(or 'y' or 'n').\n")
+
+
+def init():
+    global cnx
+    cnx = mysql.connector.connect(user='root', password='lebox',
+                                  host='127.0.0.1',
+                                  database='vacam',
+                                  charset="utf8",
+                                  use_unicode=True)
+
+
+def show_face():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    files = []
+    print (
+        "[\033[91m0\033[0m]: WHITELIST [\033[92m1\033[0m]:BLACKLIST [\033[93m2\033[0m]:REDLIST")
+    # print ("\033[92m %s\033[0m %s" %("SAMPLE",data[0]))
+    for ii in (data):
+        print ("%03d [%d] %s" % (ii[0], ii[7], ii[3]))
+
+# va POI faces
+def show_face1():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from poi where 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    files = []
+    # print ("\033[92m %s\033[0m %s" %("SAMPLE",data[0]))
+    for ii in (data):
+        print ("%03d [ %s ] %s" % (ii[0], ii[1], ii[2]))
+
+def clean_today_cms():
+    init()
+    cursor = cnx.cursor()
+    query_cmd= ("DELETE FROM cms WHERE detect_time  > (CURDATE()-1);")
+    print "Clean today CMS face"
+
+    cursor.execute(query_cmd)
+    cnx.commit()
+    cnx.close()
+
+def update_db_groupid(id, val):
+    init()
+    ret = 1
+    cursor = cnx.cursor()
+
+    query_cmd = ("SELECT * from telegram where id='%s'" % id)
+
+    try:
+        cursor.execute(query_cmd)
+        data = cursor.fetchall()
+    except mysql.connector.Error as e:
+        print e[1]
+        ret = e.errno
+        cnx.close()
+
+    # print data
+    if len(data) > 0:
+        if str(data[0][0]) == id:
+            print ("update ....")
+            ts = time.time()
+            timestamp = datetime.fromtimestamp(
+                ts).strftime('%Y-%m-%d %H:%M:%S')
+            add_cmd = ("UPDATE telegram SET group_id=%s WHERE id=%s")
+            add_data = (val, id)
+
+        try:
+            cursor.execute(add_cmd, add_data)
+            cnx.commit()
+            ret = 0
+        except mysql.connector.Error as e:
+            print e[1]
+            ret = e.errno
+        finally:
+            cursor.close()
+            cnx.close()
+    else:
+        print "Cancelled!"
+
+
+def del_enrol_face(idx):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where id='%s';" % idx.strip())
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    if len(data):
+        print data
+        if query_yes_no("\033[93mDo you want to delete item ?\033[0m ==>\033[92m%s\033[0m" % (idx), default="no"):
+            print "Yes"
+            cnx.close()
+            remove_telegram_idx(idx)
+        else:
+            print "No"
+
+def del_poi_face(idx):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from poi where id='%s';" % idx.strip())
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    if len(data):
+        print data
+        if query_yes_no("\033[93mDo you want to delete item ?\033[0m ==>\033[92m%s\033[0m" % (idx), default="no"):
+            print "Yes"
+            cnx.close()
+            remove_poi_idx(idx)
+        else:
+            print "No"
+
+def remove_poi_idx(idx):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("DELETE FROM poi WHERE id='%s'" % idx)
+    print query_cmd
+    cursor.execute(query_cmd)
+    cnx.commit()
+
+def remove_telegram_idx(idx):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("DELETE FROM telegram WHERE id='%s'" % idx)
+    print query_cmd
+    cursor.execute(query_cmd)
+    cnx.commit()
+
+    # data = cursor.fetchall ()
+
+
+def update_grp_info(idx, value):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where id='%s'" % idx)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    try:
+        val = data[0][3]
+        print ("[\033[91m%d\033[0m] %s [%s] %s " %
+               (data[0][7], data[0][5], data[0][0], data[0][3]))
+    except IndexError:
+        val = ""
+    if query_yes_no("Do you want to update? ==>\033[92m%s\033[0m" % (value)):
+        print "Yes"
+        update_db_groupid(idx, value)
+    else:
+        print "No"
+
+
+def show_blacklist_face():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = (
+        "SELECT * FROM vacam LEFT JOIN telegram ON vacam.name = telegram.reg_name WHERE telegram.group_id = 1 ORDER by vacam.ID DESC LIMIT 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print data
+
+
+def show_vacam_crop():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = (
+        "SELECT * FROM vacam WHERE vacam.name = '' ORDER by id DESC LIMIT 5")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print data[0]
+    print "-----------------------"
+    i = 0
+    for ii in (data):
+        i = i + 1
+        print ("%03d %s %s ==> \033[93m%s\033[0m %4s" %
+               (ii[0], ii[7], ii[8], ii[2], ii[10]))
+
+
+def retrive_name_idx(idx):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where id='%s'" % idx)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    try:
+        val = data[0][3]
+    except IndexError:
+        val = ""
+    return val
+
+
+def retrive_idx_name(name):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where reg_name='%s'" % name)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    if len(data):
+        return data[0][0]
+    else:
+        return
+
+
+def show_today_face():
+    init()
+    cursor = cnx.cursor()
+
+    query_cmd = (
+        "SELECT * from vacam WHERE DATE(ts) = CURDATE() AND name != '' ")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+
+
+def query_person_date(ddd, name):
+    print ddd
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from vacam WHERE DATE(ts) = '%s' AND name='%s' " %
+                 (ddd, name))
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    #    0, 1,                                   2,           3,                   4,      5,      6, 7,
+    # (433, u'4ba8b171b31042a99d46b42921b66804', u'WDC00046', u'ae838f989e_Chris', u'n/a', u'n/a', 0, u'/img/20180319/58fca5e966374907b4f3e8fbf76c4b77_ae838f989e_Chris.jpg', datetime.datetime(2018, 3, 19, 17, 7, 6), 0.0, 0.84, u'1.299174', u'103.838340', None, 1)
+    for ii in (data):
+        print ("%s %s ==> \033[93m%s\033[0m %4s" %
+               (ii[3], ii[8], ii[2], ii[10]))
+
+
+def query_person_today(aaa):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = (
+        "SELECT * from vacam WHERE DATE(ts) = CURDATE() AND name='%s' " % aaa)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    #    0, 1,                                   2,           3,                   4,      5,      6, 7,
+    # (433, u'4ba8b171b31042a99d46b42921b66804', u'WDC00046', u'ae838f989e_Chris', u'n/a', u'n/a', 0, u'/img/20180319/58fca5e966374907b4f3e8fbf76c4b77_ae838f989e_Chris.jpg', datetime.datetime(2018, 3, 19, 17, 7, 6), 0.0, 0.84, u'1.299174', u'103.838340', None, 1)
+    for ii in (data):
+        print ("%s %s ==> \033[93m%s\033[0m %4s" %
+               (ii[3], ii[8], ii[2], ii[10]))
+
+    cursor.close()
+    cnx.close()
+
+def query_date_full(aaa):
+    ddd = datetime.strptime(aaa, "%d%m%Y").date()
+    init()
+    cursor = cnx.cursor()
+    query_cmd = (
+        "SELECT * from vacam WHERE DATE(ts) = '%s' AND name != '' " % ddd)
+    print query_cmd
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    i = 0
+    for ii in (data):
+        i = i + 1
+        # print ("%03d %s %s ==> \033[93m%s\033[0m %4s" %(i,ii[3][11:], ii[8],
+        # ii[2], ii[10]))
+        print ("%03d %s %s ==> \033[93m%s\033[0m %4s" %
+               (i, ii[3], ii[8], ii[2], ii[10]))
+
+    cursor.close()
+    cnx.close()
+
+def query_date(aaa, is_today):
+    ddd = datetime.strptime(aaa, "%d%m%Y").date()
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from vacam WHERE DATE(ts) = '%s' " % ddd)
+
+    # print query_cmd
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print ("%04d <== total faces is captured" % (len(data)))
+
+    query_cmd = (
+        "SELECT * from vacam WHERE DATE(ts) = '%s' AND name != '' " % ddd)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print ("%04d <== enrolment faces is captured" % (len(data)))
+    print ("-----+--------------------------------------")
+    person_list = []
+    for ii in range(len(data)):
+        # print data[ii][3] #show name
+        # person_list.insert(1,[data[ii][3],data[ii][8]])
+        person_list.insert(1, data[ii][3])
+    # print person_list
+    # person_list = sorted(set(person_list))
+    counter = collections.Counter(person_list)
+    # print(counter)
+    for jj in iter(counter):
+        kk = jj.split("_", 1)
+        if len(kk) < 2:
+            kname = kk[0]
+        else:
+            kname = kk[1]
+        idx = retrive_idx_name(jj)
+        if idx:
+            print ("[\033[92m%02d\033[0m] %03d <==  %s") % (
+                idx, int(counter[jj]), kname)
+
+    idx = raw_input("Enter your Idx: ")
+    if not (idx == ""):
+        name = retrive_name_idx(idx)
+        if not name == "":
+            if (is_today):
+                query_person_today(name)
+            else:
+                query_person_date(ddd, name)
+
+    cursor.close()
+    cnx.close()
+
+def query_today():
+    now = datetime.now()
+    today = now.strftime("%d%m%Y")
+    query_date(today, 1)
+
+
+def query_full():
+    now = datetime.now()
+    today = now.strftime("%d%m%Y")
+    query_date_full(today)
+
+
+def retrive_face_tgz(name):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    files = []
+    jdata["database"] = []
+    for ii in range(len(data)):
+        # print ("\033[92m %d\033[0m %s" %(ii,data[ii]))
+        jdata["database"].append(
+            {"feature": data[ii][6][4:], "len": 128, "name": data[ii][3]})
+        files.insert(1, data[ii][4])
+    """
+    with open('data.json', 'w') as outfile:
+        json.dump(jdata, outfile, indent=4)
+    """
+    print ("\033[92m %s\033[0m %s" % ("TGZ", files))
+    archive = tarfile.open(name + ".tgz", "w|gz")
+    if (os.path.isdir("enroll")):
+        for file in files:
+            afile = os.path.basename(file)
+            archive.add("enroll/" + file, arcname=afile)
+            print ("\033[93mDone please check face001.tgz \033[0m")
+    else:
+        print ("\033[91mMust have enroll folder for this operation\033[0m")
+    archive.close()
+
+    cursor.close()
+    cnx.close()
+
+def show_db():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SHOW TABLES")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print data
+    cursor.close()
+    cnx.close()
+
+
+def retrive_cfg():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * FROM setting where version='v1.0'")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    print data
+    cursor.close()
+    cnx.close()
+
+
+def set_cfg(val, id):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("UPDATE setting set tg_enable=%s WHERE id=%s")
+    add_data = (val, id)
+    cursor.execute(query_cmd, add_data)
+    cnx.commit()
+    retrive_cfg()
+    cursor.close()
+    cnx.close()
+
+
+def set_group(val, id):
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("UPDATE setting set show_group=%s WHERE id=%s")
+    add_data = (val, id)
+    cursor.execute(query_cmd, add_data)
+    cnx.commit()
+    retrive_cfg()
+    cursor.close()
+    cnx.close()
+
+
+def retrive_lastid():
+    f = Figlet(font='slant')
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from vacam  ORDER BY ID DESC limit 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    aaa=str(data[0][8])
+    print f.renderText(aaa[:10])
+
+    cursor.close()
+    cnx.close()
+
+def retrive_face():
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from telegram where 1")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    files = []
+    jdata["database"] = []
+    # print ("\033[92m %s\033[0m %s" %("SAMPLE",data[0]))
+    for ii in range(len(data)):
+        print("\033[92m %d\033[0m %s" % (ii, data[ii]))
+        jdata["database"].append({
+            "feature": data[ii][6][4:],
+            "len": 128,
+            "name": data[ii][3]
+        })
+        files.insert(1, data[ii][4])
+    with open('data.json', 'w') as outfile:
+        json.dump(jdata, outfile, indent=4)
+
+    cursor.close()
+    cnx.close()
+    if (data == []):
+        return 0
+
+def show_lastcms():
+    print "show last cms DB"
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from cms ORDER by id DESC LIMIT 2")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    for info in data:
+        print info
+        #print info[:14]
+        #print "---> " + info[14][:50] + " ... "
+    cursor.close()
+    cnx.close()
+
+def show_lastvacam():
+    print "show last vacam DB"
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from vacam ORDER by id DESC LIMIT 2")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    for info in data:
+            print info
+            #print "---> " + info[14][:50] + " ... "
+    cursor.close()
+    cnx.close()
+
+def show_lastimg_scense():
+    print "show last img_scense DB"
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from img_scense ORDER by id DESC LIMIT 2")
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    for info in data:
+            print info
+            #print "---> " + info[14][:50] + " ... "
+    cursor.close()
+    cnx.close()
+
+def show_last_tbl(xxx):
+    print "show last %s DB" % xxx
+    init()
+    cursor = cnx.cursor()
+    query_cmd = ("SELECT * from %s ORDER by id DESC LIMIT 10" % xxx)
+    cursor.execute(query_cmd)
+    data = cursor.fetchall()
+    for info in data:
+            print info
+            #print "---> " + info[14][:50] + " ... "
+    cursor.close()
+    cnx.close()
+
+def cleandb():
+    #tbl =['cms','vacam','poi', 'json', 'webhook_case']
+    tbl =['cms','vacam', 'img_scense', 'json', 'webhook_case']
+    if query_yes_no("\033[93mDo you want to delete cms/vacam ?\033[0m", default="no"):
+        for item in tbl:
+            init()
+            cursor = cnx.cursor()
+            query_cmd = ("TRUNCATE TABLE `%s`" % item)
+            cursor.execute(query_cmd)
+            cnx.commit()
+            cursor.close()
+            cnx.close()
+    else:
+        print "Skip"
+
+def clean_today():
+    tbl =['cms','vacam', 'img_scense', 'json', 'webhook_case']
+    #delete from `cms` where date(detect_time) = curdate()
+    #delete from `img_scense` where id > 100
+
+def exportdb():
+    print "export DB"
+    print "mysqldump -u root -p --no-data vacam > cms.sql"
+
+def dir_files():
+    memory_dir = []
+    names = sorted(os.walk('.').next()[1])
+
+    file = open('index.html', 'w')
+    html = "<html><style>table, th, td {border: 0px solid black;}</style>"
+    ii = 1
+    for name in names:
+        dirs = sorted(glob.glob(name+"/*.jpg"))
+        if len(dirs)>1:
+            print "\033[92m"+name+"\033[0m"
+            html_img = ""
+            for jpg in dirs:
+                #print ">>>"+jpg
+                html_img += "<td><img src='/group/"+jpg+"' width='96' height='120'></td>"
+            html += "<a href='"+name+"'><table style='width:40%'><tr><td>"+str(ii)+" </td>"+html_img+"<td> ==>"+str(ii)+"</td><td>"+name+"</td></tr></a></table>\n"
+            ii = ii + 1
+    html += "</html>"
+    file.write(html)
+    file.close()
+
+
+def dir_fcp():
+    memory_dir = []
+    names = os.walk('.').next()[1]
+    for name in names:
+        dirs = glob.glob(name+"/*.jpg")
+        if len(dirs)>1:
+            print "\033[92m"+name+"\033[0m"
+
+            if not os.path.exists("xxx"):
+                os.makedirs("xxx")
+            cmd="cp -a %s xxx" % name
+            if not name == "xxx":
+                os.system(cmd)
+                #for dir in dirs:
+                #    print ">>>"+dir
+
+def dir_txt():
+    memory_dir = []
+    jpgs = glob.glob("*.jpg")
+    for jpg in jpgs:
+        print jpg
+        im = Image.open(jpg)
+        width, height = im.size
+        im.close()
+        txt_name = jpg[:-4]+".txt"
+        #txt_fname = os.path.join(sdir, txt_name)
+        f = open(txt_name, 'w')
+        f.write("%s,%s,%s,%s" % (0,0,width,height))
+        f.close()
+
+def dir_glob():
+    memory_dir = []
+    jpgs = sorted(glob.glob("*.jpg"))
+    pbar = tqdm(jpgs)
+    for jpg in jpgs:
+        print jpg
+    for jpg in pbar:
+        pbar.set_description("Processing %s" % jpg)
+
+def mv_glob():
+    memory_dir = []
+    jpgs = sorted(glob.glob("*.c"))
+    for item in jpgs:
+        cmd="git mv %s %s " %(item, item[:-1]+"cpp")
+        print cmd
+        os.system(cmd)
+
+def dir_crop():
+    memory_dir = []
+    sdir = ""
+    jpgs = sorted(glob.glob("*.jpg"))
+    for jpg in jpgs:
+        txt_name = jpg[:-4]+".txt"
+        txt_fname = os.path.join(sdir, txt_name)
+        crop_fname = "crop_"+jpg
+        f = open(txt_fname, 'r')
+        for line in f:
+            cord=line.split(",")
+
+        f.close()
+        img = cv2.imread(jpg)
+        crop_img = img[int(cord[1]):int(cord[3]), int(cord[0]):int(cord[2])]
+        cv2.imwrite(crop_fname,crop_img)
+
+def remove_duplicates(l):
+    return list(set(l))
+
+
+def dir_outin():
+    print "Out -> In"
+    memory_dir = []
+    names = sorted(os.walk('.').next()[1])
+
+    file = open('index.html', 'w')
+    html = "<html><style>table, th, td {border: 0px solid black;}</style>\n"
+    html += '<p id="count"> Matches: </p>\
+			<script>\
+				function updateCount() {\
+					var numMatch = document.querySelectorAll("[type=radio]:checked[value=match]").length;\
+					var numNomatch = document.querySelectorAll("[type=radio]:checked[value=nomatch]").length;\
+					var numDunno = document.querySelectorAll("[type=radio]:checked[value=dunno]").length;\
+					document.querySelector("#count").innerHTML = "Matches: " + numMatch + " Not matching: " + numNomatch + " Dunno: " + numDunno;\
+				}\
+			</script>'
+    ii = 1
+    for name in names:
+        dirs = sorted(glob.glob(name+'/*.jpg'))
+        for dir in dirs:
+            adir=dir.split("/")
+            dir_len=len(adir[0])
+            mdir=dir[:dir_len]
+            founded = re.findall(r"out",dir)
+            if len(founded):
+                memory_dir.append(mdir)
+    memory_dir = remove_duplicates(memory_dir)
+    for name in memory_dir:
+        print "\033[92m"+name+"\033[0m"
+        files = sorted(glob.glob(name+"/*.jpg"))
+
+        html_img = ""
+        for jpg in files:
+            print jpg
+            aaa = re.findall(r"out",jpg)
+            if len(aaa)>0:
+                html_img += "<td width='101'><img src='/group/"+jpg+"' width='96' height='120' border='5'></td>\n"
+            else:
+                html_img += "<td width='101'><img src='/group/"+jpg+"' width='96' height='120'></td>\n"
+        html += "<table style='width:80%'><tr><td>"+str(ii)+" </td>"+html_img+"<td> ==>"+str(ii)+"</td><td><a href='"+name+"'>"+name+'</td><td><label><input type="radio" onclick="updateCount();" name='+name+' value="match" checked>Match </label><label><input type="radio" onclick="updateCount();" name='+name+' value="nomatch">No </label><label><input type="radio" value="dunno" onclick="updateCount();" name='+name+' >Dunno </label>' + "</td></td></tr></table>\n"
+        ii = ii + 1
+    html += "</html>"
+    file.write(html)
+    file.close()
+
+def dir_inout():
+    print "In -> Out"
+    memory_dir = []
+    names = sorted(os.walk('.').next()[1])
+
+    file = open('index.html', 'w')
+    html = "<html><style>table, th, td {border: 0px solid black;}</style>\n"
+    html += '<p id="count"> Matches: </p>\
+			<script>\
+				function updateCount() {\
+					var numMatch = document.querySelectorAll("[type=radio]:checked[value=match]").length;\
+					var numNomatch = document.querySelectorAll("[type=radio]:checked[value=nomatch]").length;\
+					var numDunno = document.querySelectorAll("[type=radio]:checked[value=dunno]").length;\
+					document.querySelector("#count").innerHTML = "Matches: " + numMatch + " Not matching: " + numNomatch + " Dunno: " + numDunno;\
+				}\
+			</script>'
+
+    ii = 1
+    for name in names:
+        dirs = sorted(glob.glob(name+'/*.jpg'))
+        for dir in dirs:
+            adir=dir.split("/")
+            dir_len=len(adir[0])
+            mdir=dir[:dir_len]
+            founded = re.findall(r"Qout",dir)
+            if len(founded):
+                memory_dir.append(mdir)
+
+    memory_dir = remove_duplicates(memory_dir)
+    for name in memory_dir:
+        print "\033[92m"+name+"\033[0m"
+        files = sorted(glob.glob(name+"/*.jpg"))
+
+        html_img = ""
+        for jpg in files:
+            print jpg
+            aaa = re.findall(r"Qout",jpg)
+            if len(aaa)>0:
+                html_img += "<td width='101'><img src='/group/"+jpg+"' width='96' height='120' style='border:5px solid blue'></td>\n"
+            else:
+                html_img += "<td width='101'><img src='/group/"+jpg+"' width='96' height='120'></td>\n"
+        html += "<table><tr><td>"+str(ii)+" </td></td><td><a href='"+name+"'>"+name+'</td><td><label><input type="radio" onclick="updateCount();" name='+name+' value="match" checked>Match </label><label><input type="radio" onclick="updateCount();" name='+name+' value="nomatch">No </label><label><input type="radio" value="dunno" onclick="updateCount();" name='+name+' >Dunno </label>' + "</td></td>"+html_img+"</tr></tr></table>\n"
+        ii = ii + 1
+    html += "</html>"
+    file.write(html)
+    file.close()
+
+
+    if query_yes_no("Do you want to move those DIR? ==>\033[92mfinal\033[0m"):
+        print "Yes"
+        if not os.path.exists("final"):
+            os.makedirs("final")
+
+        for item in memory_dir:
+           #print item
+           cmd = "cp -a %s final" % item
+           #os.system(cmd)
+    else:
+        print "No"
+
+
+def imgsrc():
+    names = sorted(glob.glob('*.jpg'))
+    i = 0
+    file = open('index.html', 'w')
+    html = "<html>"
+    for name in names:
+        i = i + 1
+        if (i % 8) == 0:
+            html += "<br>"
+        else:
+            html += "<a href=\"" + name + \
+                "\" target='_blank'> <img src=\"" + name + "\" width='120' height='150' >\n"
+    html += "</html>"
+    file.write(html)
+    print "\033[92m%d\033[0m image is founded!!!!" % i
+    file.close()
+    return (i,names[0])
+
+def imgsrc120():
+    names = sorted(glob.glob('*.jpg'))
+    i = 0
+    file = open('index.html', 'w')
+    html = "<html>"
+    for name in names:
+        i = i + 1
+        if (i % 3) == 0:
+            html += "<br>"
+        else:
+            html += "<a href=\"" + name + \
+                "\" target='_blank'> <img src=\"" + name + "\" width='120' height='120' >\n"
+    html += "</html>"
+    file.write(html)
+    print "\033[92m%d\033[0m image is founded!!!!" % i
+    file.close()
+    return (i,names[0])
+
+
+
+def imgsrcs():
+    names = sorted(os.walk('.').next()[1])
+    file = open('index.html', 'w')
+    html = "<html><style>table, th, td {border: 0px solid black;}</style>"
+    ii = 1
+    pattern = re.compile("Qout")
+    for dir in names:
+        os.chdir(dir)
+        jpgs = sorted(glob.glob("*.jpg"))
+        print "generator for %s -> %d jpgs" % (dir, len(jpgs))
+        i = len(jpgs)
+        html_img = ""
+        for jpg in jpgs:
+            aaa=pattern.match(jpg)
+            if aaa != None:
+                #html_img += "<td>o</td>"
+                html_img += "<td><img src='"+dir+"/"+jpg+"' width='96' height='120' border='5'></td>\n"
+            else:
+                html_img += "<td><img src='"+dir+"/"+jpg+"' width='96' height='120'></td>\n"
+        #i,jpg=imgsrc()
+        os.chdir("..")
+        html += "\n<a href='"+dir+"'><table style='width:40%'><tr><td>"+str(ii)+" </td>"+html_img+"<td> ==>"+str(i)+"</td><td>"+dir+"</td></tr></a></table>\n"
+        ii = ii + 1
+        #html += "<a href='"+dir + "'><table style='width:40%'><tr><td><img src='"+dir+"/"+jpg+"' width='96'></td><td>"+dir+"</td><td> ==>"+str(i)+"</td></tr></a></table>\n"
+
+    html += "</html>"
+    file.write(html)
+    file.close()
+
+
+def cpjpg():
+    names = glob.glob('*.jpg')
+    if not os.path.exists("00"):
+        os.makedirs("00")
+    count = 0
+    for name in names:
+        idxfile=name[:-4]+".txt"
+        if os.path.isfile(idxfile):
+            copyfile(idxfile, "./00/"+idxfile)
+            copyfile(name, "./00/"+name)
+            count = count +1
+    print "Total %d files is copy to directory ./00/" % count
+
+def cpjpg0():
+    names = glob.glob('*.jpg')
+    for name in names:
+        idxfile=name[:-4]+".txt"
+        statinfo = os.stat(name)
+        if statinfo.st_size< 100000:
+            print statinfo.st_size
+            #os.unlink(name)
+            #os.unlink(idxfile)
+
+def gtcmp(fname):
+    ts = time.time()
+    timestamp = datetime.fromtimestamp(ts).strftime('%Y%m%d')
+    aname="NA"
+    correct_cnt = 0
+    error_cnt = 0
+    with open(fname) as f:
+        for line in f:
+            bname = line[:-1]
+            if line[:5]=="./img":
+                aa = len(timestamp)+7+33
+                aname= line[aa:-11]
+            else:
+                name = line[:-16]
+                if name == aname:
+                    correct_cnt = correct_cnt+1
+                else:
+                    error_cnt= error_cnt+1
+                    print bname
+    print "Correct Count=\033[92m%d\033[0m  Error Count=\033[93m%d\033[0m total=\033[94m%d\033[0m" %(correct_cnt,error_cnt,correct_cnt+error_cnt)
+
+
+def coord():
+    names = glob.glob('groundtrue/*.jpg')
+    for name in names:
+        txt=name[:-4]+".txt"
+        im = Image.open(name)
+        width, height = im.size
+        info="0,0,%d,%d" % (width,height)
+        file(txt, 'w').write(info)
+
+
+def summary():
+    f = Figlet(font='slant')
+    nday = strftime("%Y%m%d", localtime())
+    mday = strftime("%Y-%m-%d", localtime())
+    ntime = strftime("%H:%M", localtime())
+    print f.renderText(mday)
+    if os.path.isdir("/opt/fr/fd/img/" + nday):
+        path, dirs, files = os.walk("/opt/fr/fd/img/" + nday).next()
+        file_count = len(files)
+        cface = filter(lambda x: re.search(r'_', x), files)
+        face_count = len(cface)
+        print ("toDAY \033[92m%s\033[0m %s crop face -->\033[93m%d\033[0m image face->\033[94m%d\033[0m" %
+               (nday, ntime, (file_count - face_count), face_count))
+    else:
+        print ("/opt/fr/fd/img/%s is not created" % nday)
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--showlast", help="show last cms data", action="store_true")
+parser.add_argument("--showtbl", help="show last cms data", action="store", dest="TBL")
+parser.add_argument("--showlast1", help="show last vacam data", action="store_true")
+parser.add_argument("--showlast2", help="show last img_scense data", action="store_true")
+parser.add_argument("--today", help="today", action="store_true")
+parser.add_argument("--cpjpg", help="cp jpg with txt", action="store_true")
+parser.add_argument("--coord", help="retrive jpg coords", action="store_true")
+parser.add_argument("--last", help="last id", action="store_true")
+parser.add_argument(
+    "--date", help="show by date can ops like \033[92m-1\033[0m, -2", action="store", dest="date")
+parser.add_argument(
+    "--who", help="Show who is capture today", action="store_true")
+parser.add_argument(
+    "--idx", help="set --idx=nn we are selected", action="store", dest="idx")
+parser.add_argument(
+    "--grp", help="Change GroupID by face idx", action="store_true")
+parser.add_argument(
+    "--delface", help="Delete Enroll face by idx", action="store_true")
+parser.add_argument(
+    "--delface1", help="Delete va POI face by idx", action="store_true")
+parser.add_argument(
+    "--val", help="set value via --grp with --idx=nn --val=0", action="store", dest="val")
+parser.add_argument("--face", help="show enrolment faces", action="store_true")
+parser.add_argument("--face1", help="show va POI faces", action="store_true")
+parser.add_argument(
+    "--tgz", help="save enroll face in \033[92mtgz\033[0m", action="store_true")
+parser.add_argument(
+    "--data", help="save enrolment faces as data.json", action="store_true")
+parser.add_argument(
+    "--bl", help="show last blacklist faces", action="store_true")
+parser.add_argument("--full", help="show full day", action="store_true")
+parser.add_argument(
+    "--vacam", help="show vacam crop face", action="store_true")
+parser.add_argument("--db", help="show vacam DB", action="store_true")
+parser.add_argument("--cleandb", help="Clean vacam DB", action="store_true")
+parser.add_argument("--export", help="export sql schema DB", action="store_true")
+
+parser.add_argument("--cfg", help="show vacam DB config", action="store_true")
+parser.add_argument("--gtcmp", help="ground true compare v0.1 ", action="store", dest="gtcmp")
+parser.add_argument("--dtoday", help="delete today DATA", action="store_true")
+parser.add_argument(
+    "--set_tg", help="update tg_enable flag", action="store", dest="set_tg")
+parser.add_argument(
+    "--set_group",
+    help="update blacklist flag",
+    action="store",
+    dest="set_group")
+parser.add_argument("--imgsrc",help="convert images to index.html HTML imgsrc", action="store_true")
+parser.add_argument("--imgsrc120",help="convert images to index.html HTML imgsrc", action="store_true")
+parser.add_argument("--imgsrcs",help="convert image directory to index.html HTML imgsrc", action="store_true")
+parser.add_argument("--inout",help="find in/out jpg in directory", action="store_true")
+parser.add_argument("--outin",help="find out/in jpg in directory", action="store_true")
+parser.add_argument("--files2",help="find more then 1  jpg in directory", action="store_true")
+parser.add_argument("--fcp",help="files2 cp jpg in directory", action="store_true")
+parser.add_argument("--txt",help="convert jpg cord", action="store_true")
+parser.add_argument("--glob",help="list jpg files", action="store_true")
+parser.add_argument("--mv",help="rename cpp", action="store_true")
+parser.add_argument("--tocrop",help="convert big pic with txt to crop face", action="store_true")
+
+args = parser.parse_args()
+if args.today:
+    query_today()
+elif args.cpjpg:
+    cpjpg()
+elif args.gtcmp:
+    gtcmp(args.gtcmp)
+elif args.coord:
+    coord()
+elif args.cleandb:
+    cleandb()
+elif args.export:
+    exportdb()
+elif args.last:
+    retrive_lastid()
+elif args.full:
+    query_full()
+elif args.tgz:
+    retrive_face_tgz("face001")
+elif args.dtoday:
+    clean_today_cms()
+elif args.inout:
+    dir_inout()
+elif args.outin:
+    dir_outin()
+elif args.files2:
+    dir_files()
+elif args.fcp:
+    dir_fcp()
+elif args.txt:
+    dir_txt()
+elif args.glob:
+    dir_glob()
+elif args.mv:
+    mv_glob()
+elif args.tocrop:
+    dir_crop()
+
+elif args.date:
+    dateSTR = args.date
+    try:
+        dayN = int(args.date)
+        if dayN < 0:
+            date_N_days = datetime.now() - timedelta(days=abs(dayN))
+            dateSTR = date_N_days.strftime("%d%m%Y")
+            cmd = "figlet %s " % (date_N_days.strftime("%Y-%m-%d"))
+            os.system(cmd)
+            print "================================"
+    except:
+        pass
+    query_date(dateSTR, 0)
+elif args.grp:
+    # img --grp --idx=23 --val=0
+    print ("change Enrolment Group ID")
+    if (args.idx and args.val):
+        update_grp_info(args.idx, args.val)
+elif args.delface:
+    # img --delface --idx=23
+    print ("Delete enrolment face by idx")
+    if (args.idx):
+        del_enrol_face(args.idx)
+elif args.delface1:
+    # img --delface --idx=23
+    print ("Delete va POI face by idx")
+    if (args.idx):
+        del_poi_face(args.idx)
+elif args.who:
+    if args.idx == None:
+        query_person_today("afa24c35ac_Bee_kim")
+    else:
+        name = retrive_name_idx(args.idx)
+        if not name == "":
+            query_person_today(name)
+elif args.data:
+    retrive_face()
+elif args.face:
+    show_face()
+elif args.face1:
+    show_face1()
+elif args.bl:
+    show_blacklist_face()
+elif args.vacam:
+    show_vacam_crop()
+elif args.db:
+    show_db()
+elif args.cfg:
+    retrive_cfg()
+elif args.set_tg:
+    set_tg(args.set_tg, 1)
+elif args.set_group:
+    set_group(args.set_group, 1)
+elif args.imgsrc:
+    imgsrc()
+elif args.imgsrc120:
+    imgsrc120()
+elif args.imgsrcs:
+    imgsrcs()
+elif args.showlast:
+    show_lastcms()
+elif args.showlast1:
+    show_lastvacam()
+elif args.showlast2:
+    show_lastimg_scense()
+elif args.TBL:
+    show_last_tbl(args.TBL)
+else:
+    summary()

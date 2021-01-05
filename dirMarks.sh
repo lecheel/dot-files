@@ -63,7 +63,7 @@ if [[ $- =~ .*i.* ]]; then bind '"\C-xk": "\C-a hstr -k \C-j"'; fi
 #
 
 
-BOOKMARKS="/home/lecheel/.ldirs"
+BOOKMARKS=~/.ldirs
 LDIRSEL=~/.ldirsel
 LDIROK=~/.ldirok
 if [[ -e $LDIROK ]]; then
@@ -437,106 +437,3 @@ function _bookmark_name_valid {
     fi
 }
 
-# completion command
-function _comp {
-    local curw
-    COMPREPLY=()
-    curw=${COMP_WORDS[COMP_CWORD]}
-    COMPREPLY=($(compgen -W '`_lecp`' -- $curw))
-    return 0
-}
-
-
-function _lecp {
-    cat ~/.lecpls
-    ls -p | grep -v /
-}
-
-function lecp {
-    PC=`uname -a|awk -F' ' '{print $2}'`
-    if [[ $PC == "le1510" ]] || [[ $PC == "lePC" ]] || [[ $PC == "lecheeldeMac-Pro.local" ]]; then
-        DEST="192.168.0.2"
-        echo "Local $DEST"
-    else
-        DEST="lecheel@114.35.36.47"
-        #    DEST="192.168.0.2"
-    fi
-    echo "dirMarks "$DEST
-    echo "-    lecp ls      # list /tmp directory"
-    echo "-    lecp la      # list /tmp more files"
-    echo "-    lecp file .  # for download "
-    echo "-    lecp file    # for upload "
-
-    if [[ $1 == "ls" ]]; then
-        figlet "last 10 uploads"
-        ssh $DEST ls -ltr /tmp | tail -10 | tee ~/.lecp
-        #   sed '1,3d' ~/.lecp | awk -F" " '{print $(NF)}' >~/.lecpls
-        cat ~/.lecp | awk -F" " '{print $(NF)}' >~/.lecpls
-        return
-    fi
-
-    if [[ $1 == "la" ]]; then
-        figlet "last 30 uploads"
-        ssh $DEST ls -ltr /tmp | tail -30 | tee ~/.lecp
-        cat ~/.lecp | awk -F" " '{print $(NF)}' >~/.lecpls
-        return
-    fi
-
-    if [[ $1 == "rm" ]]; then
-        echo -e "(\033[92mRemove\033[0m $2)"
-        read -p "Do you want to delete $2 -> $DEST... ?(y/N)" -n 1 -r
-        echo    # (optional) move to a new line
-        if [[ $REPLY == "" ]];then
-            REPLY="N"
-        fi
-        if [[ $REPLY =~ ^[Yy]$ ]]; then
-            ssh -p $PORT $DEST "rm /tmp/$2"
-            echo "Removed!!!"
-            return
-        fi
-        return
-    fi
-
-    if [[ $# -eq 1 ]]; then
-        if [[ -f $1 ]]; then
-            echo -e "(\033[92mupload\033[0m)"
-            read -p "Do you want to copy $1 -> $DEST... ?(Y/n)" -n 1 -r
-            echo    # (optional) move to a new line
-            if [[ $REPLY == "" ]]; then
-                REPLY="Y"
-            fi
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                echo -e "scp \033[91m$1\033[0m --> lesrc...:/tmp"
-                scp $1 $DEST:/tmp;
-            else
-                return
-            fi
-            #     scp $1 $DEST:/tmp
-        else
-            echo -e "\033[91m$1\033[0m not exist"
-            read -p "Do you want to Download? (Y/n)" -n 1 -r
-            echo    # (optional) move to a new line
-            if [[ $REPLY == "" ]]; then
-                REPLY="Y"
-            fi
-            if [[ $REPLY =~ ^[Yy]$ ]]; then
-                scp $DEST:/tmp/$@ .
-            else
-                return
-            fi
-        fi
-        return
-    fi
-
-    if [[ $1 == "" ]]; then
-        echo -e "lecp from $DEST (\033[93m$VER\033[0m)"
-    else
-        echo -e "(\033[96mDownload\033[0m)"
-        scp $DEST:/tmp/$@
-    fi
-
-}
-
-shopt -s progcomp
-complete -F _comp lecp
-complete -F _l l
