@@ -1,0 +1,19 @@
+#! /bin/bash
+#git difftool --tool=vimdiff --no-prompt
+git diff --name-only > /tmp/1.lst
+APP=fzf
+while true; do
+    maxsize=10
+    filename=/tmp/1.lst
+    filesize=$(stat -c%s "$filename")
+    if (( filesize > maxsize )); then
+        info=`cat /tmp/1.lst | $APP`
+
+        if [[ "$info" == "" ]]; then
+            break
+        else
+            git difftool --tool=vimdiff --no-prompt $info
+        fi
+    fi
+done
+
